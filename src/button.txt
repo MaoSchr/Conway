@@ -1,0 +1,6 @@
+.on_press(Message::Stop)) button(Svg::<Theme>::from_path(if self.playing {"../images/play.svg"
+                                                                        } else {
+                                                                            "../images/pause.svg"
+                                                                        }))
+                                                                        .padding([10, 20])
+                                                                        .on_press(Message::PlayPause),
