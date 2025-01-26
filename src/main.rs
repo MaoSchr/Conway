@@ -1,7 +1,7 @@
 use iced::{
     color,
-    widget::{button, column, container, radio, row, slider, text, Button, Column, Row, Svg},
-    Background, Border, Color, Element, Length, Theme,
+    widget::{button, column, container, radio, row, slider, text, Button, Column, Row},
+    Border, Color, Element, Length, Theme,
 };
 use rand::Rng;
 
@@ -9,7 +9,7 @@ fn main() {
     let _ = iced::application(Conway::title, Conway::update, Conway::view).run();
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Copy, Clone, Debug)]
 enum Message {
     Update,
     PlayPause,
@@ -17,10 +17,10 @@ enum Message {
     Simulation,
     Settings,
     FillingMethodChanged(FillingMethod),
-    Generationchange(u16),
-    InitCellsNumber(u16),
-    InitGenNumber(u16),
-    InitDensity(f64),
+    Generationchange(u32),
+    InitCellsNumber(u32),
+    InitGenNumber(u32),
+    InitDensity(u32),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -41,14 +41,15 @@ struct Cell {
 }
 
 struct Conway {
-    nb_init_cells: u16,
-    nb_max_generation: u16,
+    nb_init_cells: u32,
+    nb_max_generation: u32,
     cells_tab: [[Cell; Self::SIZE]; Self::SIZE],
     playing: bool,
-    generation: u16,
+    generation: u32,
     screen: Screen,
     filling_method: FillingMethod,
-    living_density: f64,
+    living_density: u32,
+    number_of_living_cells: u32,
 }
 
 impl Conway {
@@ -56,22 +57,21 @@ impl Conway {
 
     fn check_neighbours(&self, x: usize, y: usize) -> usize {
         let mut living_neighbours = 0;
-
-        for dx in [-1, 0, 1] {
-            for dy in [-1, 0, 1] {
+        let _size = Self::SIZE as isize;
+        for dx in -1isize..=1isize {
+            for dy in -1isize..=1isize {
                 if dx == 0 && dy == 0 {
                     continue;
                 }
 
-                let nx = x.wrapping_add(dx as usize);
-                let ny = y.wrapping_add(dy as usize);
+                let nx = ((x as isize) + dx).rem_euclid(Self::SIZE as isize) as usize;
+                let ny = ((y as isize) + dy).rem_euclid(Self::SIZE as isize) as usize;
 
-                if nx < Self::SIZE && ny < Self::SIZE && self.cells_tab[nx][ny].living {
+                if self.cells_tab[nx as usize][ny as usize].living {
                     living_neighbours += 1;
                 }
             }
         }
-
         living_neighbours
     }
 
@@ -83,7 +83,7 @@ impl Conway {
         for x in 0..Self::SIZE {
             for y in 0..Self::SIZE {
                 cells_tab[x][y] = Cell {
-                    living: rng.gen_bool(self.living_density),
+                    living: rng.gen_bool(self.living_density as f64 / 100.0),
                 };
                 count_cells += 1;
             }
@@ -95,7 +95,11 @@ impl Conway {
     fn build_cells_with_number_of_cells(&mut self) {
         let mut count_cells = 0;
         let mut rng = rand::thread_rng();
-
+        for x in 0..Self::SIZE {
+            for y in 0..Self::SIZE {
+                self.cells_tab[x][y].living = false;
+            }
+        }
         while count_cells < self.nb_init_cells {
             let x = rng.gen_range(0..Self::SIZE);
             let y = rng.gen_range(0..Self::SIZE);
@@ -128,7 +132,7 @@ impl Conway {
     fn init(&self) -> Element<Message> {
         let mut init = Column::new();
         let choose_nb_gen_row = row![
-            slider(0..=255, self.nb_max_generation, Message::InitGenNumber,),
+            slider(0..=1000, self.nb_max_generation, Message::InitGenNumber,),
             text(self.nb_max_generation.to_string())
         ];
 
@@ -155,8 +159,8 @@ impl Conway {
         match self.filling_method {
             FillingMethod::Density => {
                 let fillingmethod_choice_row = row![
-                    slider(0.01..=0.99, self.living_density, Message::InitDensity),
-                    text(self.living_density.to_string())
+                    slider(1..=99, self.living_density, Message::InitDensity),
+                    text(format!("{}%", self.living_density))
                 ];
                 init = init.push(fillingmethod_choice_row);
                 init = init.push(button("Simulation").on_press(Message::Simulation));
@@ -164,7 +168,7 @@ impl Conway {
             }
             FillingMethod::NumberOfCells => {
                 let fillingmethod_choice_row = row![
-                    slider(1..=100, self.nb_init_cells, Message::InitCellsNumber),
+                    slider(100..=2000, self.nb_init_cells, Message::InitCellsNumber),
                     text(self.nb_init_cells.to_string())
                 ];
                 init = init.push(fillingmethod_choice_row);
@@ -200,31 +204,47 @@ impl Conway {
         }
         let control_row = row![
             button("Update").on_press(Message::Update),
-            button("Paramètres").on_press(Message::Settings),
             //Svg::from_path("../images/pause.png"),
+            text("1".to_string()),
             slider(
                 1..=self.nb_max_generation,
                 self.generation,
-                Message::Generationchange
+                Message::Generationchange,
             ),
-            text(self.generation.to_string())
+            text(self.nb_max_generation.to_string()),
+            button("Paramètres").on_press(Message::Settings),
         ];
-        column![column_conway, control_row].into()
+        let info_row = row![
+            text("Génération:"),
+            text(self.generation.to_string()),
+            text("\tCellules vivantes:"),
+            text(self.number_of_living_cells.to_string())
+        ];
+        column![column_conway, control_row, info_row].into()
     }
 
     fn update_cells(&mut self) {
+        let mut next_cells_tab = self.cells_tab;
+
         for x in 0..Self::SIZE {
             for y in 0..Self::SIZE {
-                if !(self.cells_tab[x][y].living) && self.check_neighbours(x, y) == 3 {
-                    self.cells_tab[x][y].living = true;
-                }
-                if self.cells_tab[x][y].living
-                    && !(self.check_neighbours(x, y) == 2 || self.check_neighbours(x, y) == 3)
+                let living_neighbours = self.check_neighbours(x, y);
+
+                next_cells_tab[x][y].living = match (self.cells_tab[x][y].living, living_neighbours)
                 {
-                    self.cells_tab[x][y].living = false;
-                }
+                    (true, 2) | (true, 3) => {
+                        self.number_of_living_cells += 1;
+                        true
+                    } // Reste en vie si 2 ou 3 voisins vivants
+                    (false, 3) => true, // Devient vivant si exactement 3 voisins vivants
+                    _ => {
+                        self.number_of_living_cells += 1;
+                        false
+                    } // Sinon, reste ou devient mort
+                };
             }
         }
+        self.cells_tab = next_cells_tab;
     }
 
     fn update(&mut self, message: Message) {
@@ -236,14 +256,17 @@ impl Conway {
             Message::Stop => self.playing = false,
             Message::PlayPause => self.playing = !self.playing,
             Message::Generationchange(value) => {
-                if value >= self.generation {
-                    Self::update_cells(self);
+                if value >= self.generation && self.generation <= self.nb_max_generation {
                     self.generation = value;
+                    Self::update_cells(self);
                 }
             }
             Message::InitCellsNumber(value) => self.nb_init_cells = value,
             Message::InitDensity(value) => self.living_density = value,
-            Message::InitGenNumber(value) => self.nb_max_generation = value,
+            Message::InitGenNumber(value) => {
+                self.nb_max_generation = value;
+                self.generation = 1;
+            }
             Message::FillingMethodChanged(method) => self.filling_method = method,
             Message::Simulation => {
                 match self.filling_method {
@@ -259,15 +282,15 @@ impl Conway {
 
 impl Default for Conway {
     fn default() -> Self {
-        let mut count_cells: u16 = 0;
-        let density = 0.25;
+        let mut count_cells = 0;
+        let density = 25;
         let mut rng = rand::thread_rng();
         let mut cells_tab = [[Cell { living: false }; Self::SIZE]; Self::SIZE];
 
         for x in 0..Self::SIZE {
             for y in 0..Self::SIZE {
                 cells_tab[x][y] = Cell {
-                    living: rng.gen_bool(density),
+                    living: rng.gen_bool(density as f64 / 100.0),
                 };
                 count_cells += 1;
             }
@@ -276,12 +299,13 @@ impl Default for Conway {
         Self {
             cells_tab,
             playing: false,
-            generation: 0,
+            generation: 1,
             screen: Screen::Init,
             nb_init_cells: count_cells,
             nb_max_generation: 100,
-            living_density: 0.25,
+            living_density: 25,
             filling_method: FillingMethod::Density,
+            number_of_living_cells: count_cells,
         }
     }
 }
