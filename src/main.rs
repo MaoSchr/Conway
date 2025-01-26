@@ -85,10 +85,13 @@ impl Conway {
                 cells_tab[x][y] = Cell {
                     living: rng.gen_bool(self.living_density as f64 / 100.0),
                 };
-                count_cells += 1;
+                if cells_tab[x][y].living {
+                    count_cells += 1;
+                }
             }
         }
         self.nb_init_cells = count_cells;
+        self.number_of_living_cells = count_cells;
         self.cells_tab = cells_tab;
     }
 
@@ -217,7 +220,8 @@ impl Conway {
         let info_row = row![
             text("Génération:"),
             text(self.generation.to_string()),
-            text("\tCellules vivantes:"),
+            text("\t"),
+            text("Cellules vivantes:"),
             text(self.number_of_living_cells.to_string())
         ];
         column![column_conway, control_row, info_row].into()
@@ -232,15 +236,16 @@ impl Conway {
 
                 next_cells_tab[x][y].living = match (self.cells_tab[x][y].living, living_neighbours)
                 {
-                    (true, 2) | (true, 3) => {
+                    (true, 2) | (true, 3) => true, // Reste en vie si 2 ou 3 voisins vivants
+                    (false, 3) => {
                         self.number_of_living_cells += 1;
                         true
-                    } // Reste en vie si 2 ou 3 voisins vivants
-                    (false, 3) => true, // Devient vivant si exactement 3 voisins vivants
-                    _ => {
-                        self.number_of_living_cells += 1;
+                    } // Devient vivant si exactement 3 voisins vivants
+                    (true, _) => {
+                        self.number_of_living_cells -= 1;
                         false
-                    } // Sinon, reste ou devient mort
+                    }
+                    _ => false, // Sinon, reste ou devient mort
                 };
             }
         }
@@ -250,8 +255,10 @@ impl Conway {
     fn update(&mut self, message: Message) {
         match message {
             Message::Update => {
-                Self::update_cells(self);
-                self.generation += 1;
+                if self.generation < self.nb_max_generation {
+                    Self::update_cells(self);
+                    self.generation += 1;
+                }
             }
             Message::Stop => self.playing = false,
             Message::PlayPause => self.playing = !self.playing,
@@ -261,7 +268,10 @@ impl Conway {
                     Self::update_cells(self);
                 }
             }
-            Message::InitCellsNumber(value) => self.nb_init_cells = value,
+            Message::InitCellsNumber(value) => {
+                self.nb_init_cells = value;
+                self.number_of_living_cells = value
+            }
             Message::InitDensity(value) => self.living_density = value,
             Message::InitGenNumber(value) => {
                 self.nb_max_generation = value;
@@ -292,7 +302,9 @@ impl Default for Conway {
                 cells_tab[x][y] = Cell {
                     living: rng.gen_bool(density as f64 / 100.0),
                 };
-                count_cells += 1;
+                if cells_tab[x][y].living {
+                    count_cells += 1;
+                }
             }
         }
 
