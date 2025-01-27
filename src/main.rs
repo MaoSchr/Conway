@@ -16,6 +16,7 @@ enum Message {
     Stop,
     Simulation,
     Settings,
+    Réinitialiser,
     FillingMethodChanged(FillingMethod),
     Generationchange(u32),
     InitCellsNumber(u32),
@@ -50,8 +51,8 @@ struct Conway {
     filling_method: FillingMethod,
     living_density: u32,
     number_of_living_cells: u32,
+    initial_tab: [[Cell; Self::SIZE]; Self::SIZE],
 }
-
 impl Conway {
     const SIZE: usize = 50;
 
@@ -93,6 +94,7 @@ impl Conway {
         self.nb_init_cells = count_cells;
         self.number_of_living_cells = count_cells;
         self.cells_tab = cells_tab;
+        self.initial_tab = cells_tab;
     }
 
     fn build_cells_with_number_of_cells(&mut self) {
@@ -111,6 +113,15 @@ impl Conway {
                 count_cells += 1;
             }
         }
+        self.initial_tab = self.cells_tab;
+    }
+
+    fn réinitialiser(&mut self) {
+        self.cells_tab = self.initial_tab;
+        self.playing = true;
+        self.generation = 1;
+        self.screen = Screen::Simul;
+        self.number_of_living_cells = self.nb_init_cells;
     }
 
     fn default_button() -> Button<'static, Message> {
@@ -216,6 +227,7 @@ impl Conway {
             ),
             text(self.nb_max_generation.to_string()),
             button("Paramètres").on_press(Message::Settings),
+            button("Réinitialiser").on_press(Message::Réinitialiser)
         ];
         let info_row = row![
             text("Génération:"),
@@ -286,6 +298,7 @@ impl Conway {
                 self.screen = Screen::Simul;
             }
             Message::Settings => self.screen = Screen::Init,
+            Message::Réinitialiser => Self::réinitialiser(self),
         };
     }
 }
@@ -318,6 +331,7 @@ impl Default for Conway {
             living_density: 25,
             filling_method: FillingMethod::Density,
             number_of_living_cells: count_cells,
+            initial_tab: cells_tab,
         }
     }
 }
