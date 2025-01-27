@@ -1,12 +1,14 @@
 use iced::{
-    color,
-    widget::{button, column, container, radio, row, slider, text, Button, Column, Row},
-    Border, Color, Element, Length, Theme,
+    color, time,
+    widget::{button, column, container, radio, row, slider, text, Button, Column, Row, Svg},
+    Border, Color, Element, Length, Subscription, Theme,
 };
 use rand::Rng;
 
 fn main() {
-    let _ = iced::application(Conway::title, Conway::update, Conway::view).run();
+    let _ = iced::application(Conway::title, Conway::update, Conway::view)
+        .subscription(Conway::subscription)
+        .run();
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -17,6 +19,7 @@ enum Message {
     Simulation,
     Settings,
     Réinitialiser,
+    ActiverDésactiver(usize, usize),
     FillingMethodChanged(FillingMethod),
     Generationchange(u32),
     InitCellsNumber(u32),
@@ -56,6 +59,14 @@ struct Conway {
 impl Conway {
     const SIZE: usize = 50;
 
+    fn subscription(&self) -> Subscription<Message> {
+        let sub = time::every(time::Duration::from_millis(500));
+        if self.playing {
+            sub.map(|_| Message::Update)
+        } else {
+            Subscription::none()
+        }
+    }
     fn check_neighbours(&self, x: usize, y: usize) -> usize {
         let mut living_neighbours = 0;
         let _size = Self::SIZE as isize;
@@ -124,14 +135,17 @@ impl Conway {
         self.number_of_living_cells = self.nb_init_cells;
     }
 
-    fn default_button() -> Button<'static, Message> {
-        Button::new("").height(Length::Fill).width(Length::Fill)
+    fn default_button(x: usize, y: usize) -> Button<'static, Message> {
+        Button::new("")
+            .height(Length::Fill)
+            .width(Length::Fill)
+            .on_press(Message::ActiverDésactiver(x, y))
     }
 
     fn title(&self) -> String {
         match self.screen {
-            Screen::Init => "Conway initialisation".into(),
-            Screen::Simul => "Conway simulation".into(),
+            Screen::Init => "Jeu de Conway - Paramètres".into(),
+            Screen::Simul => "Jeu de Conway - Simulation".into(),
         }
     }
 
@@ -199,18 +213,20 @@ impl Conway {
             for x in 0..Self::SIZE {
                 let living = self.cells_tab[x][y].living;
                 row = row.push(
-                    Self::default_button().style(move |_theme: &Theme, _status| button::Style {
-                        background: Some(if living {
-                            Color::BLACK.into()
-                        } else {
-                            Color::WHITE.into()
-                        }),
-                        border: Border {
-                            color: color!(0xBFBFBF),
-                            width: 1.0,
-                            ..Border::default()
-                        },
-                        ..button::Style::default()
+                    Self::default_button(x, y).style(move |_theme: &Theme, _status| {
+                        button::Style {
+                            background: Some(if living {
+                                Color::BLACK.into()
+                            } else {
+                                Color::WHITE.into()
+                            }),
+                            border: Border {
+                                color: color!(0xBFBFBF),
+                                width: 1.0,
+                                ..Border::default()
+                            },
+                            ..button::Style::default()
+                        }
                     }),
                 );
             }
@@ -218,18 +234,19 @@ impl Conway {
         }
         let control_row = row![
             button("Update").on_press(Message::Update),
-            //Svg::from_path("../images/pause.png"),
+            button(Svg::from_path("images/pause.svg")).on_press(Message::PlayPause),
+            button(Svg::from_path("images/stop.svg")).on_press(Message::Stop),
+            text(self.nb_max_generation.to_string()),
+            button("Paramètres").on_press(Message::Settings),
+            button("Réinitialiser").on_press(Message::Réinitialiser)
+        ];
+        let info_row = row![
             text("1".to_string()),
             slider(
                 1..=self.nb_max_generation,
                 self.generation,
                 Message::Generationchange,
             ),
-            text(self.nb_max_generation.to_string()),
-            button("Paramètres").on_press(Message::Settings),
-            button("Réinitialiser").on_press(Message::Réinitialiser)
-        ];
-        let info_row = row![
             text("Génération:"),
             text(self.generation.to_string()),
             text("\t"),
@@ -299,7 +316,16 @@ impl Conway {
             }
             Message::Settings => self.screen = Screen::Init,
             Message::Réinitialiser => Self::réinitialiser(self),
-        };
+            Message::ActiverDésactiver(x, y) => {
+                if self.cells_tab[x][y].living {
+                    self.number_of_living_cells -= 1;
+                    self.cells_tab[x][y].living = false;
+                } else {
+                    self.number_of_living_cells += 1;
+                    self.cells_tab[x][y].living = true;
+                }
+            }
+        }
     }
 }
 
