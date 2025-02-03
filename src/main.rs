@@ -15,7 +15,6 @@ fn main() {
 enum Message {
     Update,
     PlayPause,
-    Stop,
     Simulation,
     Settings,
     Réinitialiser,
@@ -25,6 +24,7 @@ enum Message {
     InitCellsNumber(u32),
     InitGenNumber(u32),
     InitDensity(u32),
+    ChangeVitesse(u32),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -55,14 +55,16 @@ struct Conway {
     living_density: u32,
     number_of_living_cells: u32,
     initial_tab: [[Cell; Self::SIZE]; Self::SIZE],
+    vitesse: u32,
 }
+
 impl Conway {
     const SIZE: usize = 50;
 
     fn subscription(&self) -> Subscription<Message> {
-        let sub = time::every(time::Duration::from_millis(500));
         if self.playing {
-            sub.map(|_| Message::Update)
+            time::every(time::Duration::from_millis(self.vitesse as u64).into())
+                .map(|_| Message::Update)
         } else {
             Subscription::none()
         }
@@ -191,15 +193,27 @@ impl Conway {
                     text(format!("{}%", self.living_density))
                 ];
                 init = init.push(fillingmethod_choice_row);
+                let vitesse_row = row![
+                    row![text("fps"),],
+                    slider(1..=1023, self.vitesse, Message::ChangeVitesse),
+                    text(self.vitesse.to_string())
+                ];
+                init = init.push(vitesse_row);
                 init = init.push(button("Simulation").on_press(Message::Simulation));
                 return init.into();
             }
             FillingMethod::NumberOfCells => {
                 let fillingmethod_choice_row = row![
-                    slider(100..=2000, self.nb_init_cells, Message::InitCellsNumber),
+                    slider(100..=1023, self.nb_init_cells, Message::InitCellsNumber),
                     text(self.nb_init_cells.to_string())
                 ];
                 init = init.push(fillingmethod_choice_row);
+                let vitesse_row = row![
+                    row![text("fps"),],
+                    slider(1..=1000, self.vitesse, Message::ChangeVitesse),
+                    text(self.vitesse.to_string())
+                ];
+                init = init.push(vitesse_row);
                 init = init.push(button("Simulation").on_press(Message::Simulation));
                 return init.into();
             }
@@ -234,11 +248,23 @@ impl Conway {
         }
         let control_row = row![
             button("Update").on_press(Message::Update),
-            button(Svg::from_path("images/pause.svg")).on_press(Message::PlayPause),
-            button(Svg::from_path("images/stop.svg")).on_press(Message::Stop),
+            if self.playing {
+                button(Svg::from_path("images/pause.svg"))
+                    .height(40)
+                    .width(40)
+                    .on_press(Message::PlayPause)
+            } else {
+                button(Svg::from_path("images/play.svg"))
+                    .height(40)
+                    .width(40)
+                    .on_press(Message::PlayPause)
+            },
+            button(Svg::from_path("images/stop.svg"))
+                .height(40)
+                .width(40)
+                .on_press(Message::Réinitialiser),
             text(self.nb_max_generation.to_string()),
             button("Paramètres").on_press(Message::Settings),
-            button("Réinitialiser").on_press(Message::Réinitialiser)
         ];
         let info_row = row![
             text("1".to_string()),
@@ -251,14 +277,16 @@ impl Conway {
             text(self.generation.to_string()),
             text("\t"),
             text("Cellules vivantes:"),
-            text(self.number_of_living_cells.to_string())
+            text(self.number_of_living_cells.to_string()),
+            text("\t"),
+            text("Vitesse:"),
+            text(self.vitesse.to_string()),
         ];
-        column![column_conway, control_row, info_row].into()
+        column![column_conway, info_row, control_row].into()
     }
 
     fn update_cells(&mut self) {
         let mut next_cells_tab = self.cells_tab;
-
         for x in 0..Self::SIZE {
             for y in 0..Self::SIZE {
                 let living_neighbours = self.check_neighbours(x, y);
@@ -289,7 +317,6 @@ impl Conway {
                     self.generation += 1;
                 }
             }
-            Message::Stop => self.playing = false,
             Message::PlayPause => self.playing = !self.playing,
             Message::Generationchange(value) => {
                 if value >= self.generation && self.generation <= self.nb_max_generation {
@@ -315,7 +342,12 @@ impl Conway {
                 self.screen = Screen::Simul;
             }
             Message::Settings => self.screen = Screen::Init,
-            Message::Réinitialiser => Self::réinitialiser(self),
+            Message::Réinitialiser => {
+                Self::réinitialiser(self);
+                self.playing = false;
+                self.generation = 1
+            }
+
             Message::ActiverDésactiver(x, y) => {
                 if self.cells_tab[x][y].living {
                     self.number_of_living_cells -= 1;
@@ -325,6 +357,7 @@ impl Conway {
                     self.cells_tab[x][y].living = true;
                 }
             }
+            Message::ChangeVitesse(valeur) => self.vitesse = 1001 - valeur,
         }
     }
 }
@@ -358,6 +391,7 @@ impl Default for Conway {
             filling_method: FillingMethod::Density,
             number_of_living_cells: count_cells,
             initial_tab: cells_tab,
+            vitesse: 1000,
         }
     }
 }
