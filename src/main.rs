@@ -1,6 +1,6 @@
 use iced::{
     color, time,
-    widget::{button, column, container, radio, row, slider, text, Button, Column, Row, Svg},
+    widget::{button, column, container, row, text, text_input, Button, Column, Row, Svg, Text},
     Border, Color, Element, Length, Subscription, Theme,
 };
 use rand::Rng;
@@ -11,35 +11,36 @@ fn main() {
         .run();
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 enum Message {
     Update,
     PlayPause,
     Simulation,
     Settings,
+    Examples,
     Réinitialiser,
-    ActiverDésactiver(usize, usize),
-    FillingMethodChanged(FillingMethod),
-    InitCellsNumber(u32),
-    InitDensity(u32),
-    ChangeVitesse(u32),
     Grid,
     IncreaseVitesse,
     DecreaseVitesse,
     IncreaseQuickVitesse,
     DecreaseQuickVitesse,
+    ActiverDésactiver(usize, usize),
+    FillingMethodChanged,
+    InitCellsNumber(u32),
+    InitDensity(u32),
+    ChangeVitesse(u32),
+    InputChangeMethod(String),
+    InputVitesse(String),
+    ConvertVitesse,
+    ConvertDensity,
+    Convert,
 }
 
 #[derive(Clone, Copy, Debug)]
 enum Screen {
     Init,
     Simul,
-}
-
-#[derive(Eq, PartialEq, Copy, Clone, Debug)]
-enum FillingMethod {
-    Density,
-    NumberOfCells,
+    Example,
 }
 
 #[derive(Clone, Copy)]
@@ -49,22 +50,22 @@ struct Cell {
 
 struct Conway {
     nb_init_cells: u32,
-    nb_max_generation: u32,
     cells_tab: [[Cell; Self::SIZE]; Self::SIZE],
     playing: bool,
     generation: u32,
     screen: Screen,
-    filling_method: FillingMethod,
+    filling_method: bool,
     living_density: u32,
     number_of_living_cells: u32,
     initial_tab: [[Cell; Self::SIZE]; Self::SIZE],
     vitesse: u32,
     grid_state: bool,
+    message: String,
+    input: String,
 }
 
 impl Conway {
     const SIZE: usize = 50;
-
     fn subscription(&self) -> Subscription<Message> {
         if self.playing {
             time::every(time::Duration::from_millis(self.vitesse as u64).into())
@@ -152,6 +153,7 @@ impl Conway {
         match self.screen {
             Screen::Init => "Jeu de Conway - Paramètres".into(),
             Screen::Simul => "Jeu de Conway - Simulation".into(),
+            Screen::Example => "Jeu de Conway - Exemples".into(),
         }
     }
 
@@ -159,57 +161,85 @@ impl Conway {
         let screen = match self.screen {
             Screen::Init => self.init(),
             Screen::Simul => self.simulation(),
+            Screen::Example => self.examples(),
         };
         container(screen).into()
     }
 
+    fn examples(&self) -> Element<Message> {
+        column![
+            button("Simulation").on_press(Message::Simulation),
+            text("En cours...")
+        ]
+        .into()
+    }
+
     fn init(&self) -> Element<Message> {
         let mut init = Column::new();
-        let density_radio = radio(
-            "Density method",
-            FillingMethod::Density,
-            Some(self.filling_method),
-            Message::FillingMethodChanged,
-        );
-
-        let nb_cells_radio = radio(
-            "Choose directly the number of cells",
-            FillingMethod::NumberOfCells,
-            Some(self.filling_method),
-            Message::FillingMethodChanged,
-        );
-
-        let fillingmethod_row = row![density_radio, nb_cells_radio];
+        let mut density_button = button("Density Method").on_press(Message::FillingMethodChanged);
+        let mut nb_cells_button =
+            button("Number of cells Method").on_press(Message::FillingMethodChanged);
+        if self.filling_method {
+            density_button = density_button.style(button::primary);
+            nb_cells_button = nb_cells_button.style(button::secondary);
+        } else {
+            density_button = density_button.style(button::secondary);
+            nb_cells_button = nb_cells_button.style(button::primary)
+        }
+        let fillingmethod_row = column![
+            text("Construction du tableau initial").size(35),
+            row![density_button, nb_cells_button].spacing(50).center(),
+        ];
 
         init = init.push(fillingmethod_row);
         match self.filling_method {
-            FillingMethod::Density => {
-                let fillingmethod_choice_row = row![
-                    slider(1..=99, self.living_density, Message::InitDensity),
-                    text(format!("{}%", self.living_density))
-                ];
-                init = init.push(fillingmethod_choice_row);
+            true => {
                 let vitesse_row = row![
-                    row![text("fps"),],
-                    slider(2..=500, self.vitesse, Message::ChangeVitesse),
-                    text(self.vitesse.to_string())
+                    text("1<").size(20),
+                    text_input("Choose the vitesse!", &self.message.as_str())
+                        .on_input(Message::InputChangeMethod)
+                        .size(20),
+                    Button::new("OK").on_press(Message::Convert),
+                    Text::new(&self.message).size(20),
+                    text("<500").size(20),
+                ];
+
+                let fillingmethod_choice_row = row![
+                    text("1%<").size(20),
+                    text_input("Choose the density of cells!", &self.message.as_str())
+                        .on_input(Message::InputChangeMethod),
+                    Button::new("OK").on_press(Message::ConvertDensity),
+                    Text::new(&self.message).size(20),
+                    text("<100%").size(20)
                 ];
                 init = init.push(vitesse_row);
+                init = init.push(text("Don\'t worry, you can change it later.").size(15));
+                init = init.push(fillingmethod_choice_row);
                 init = init.push(button("Simulation").on_press(Message::Simulation));
                 return init.into();
             }
-            FillingMethod::NumberOfCells => {
-                let fillingmethod_choice_row = row![
-                    slider(100..=1023, self.nb_init_cells, Message::InitCellsNumber),
-                    text(self.nb_init_cells.to_string())
-                ];
-                init = init.push(fillingmethod_choice_row);
+            false => {
                 let vitesse_row = row![
-                    row![text("fps"),],
-                    slider(1..=1000, self.vitesse, Message::ChangeVitesse),
-                    text(self.vitesse.to_string())
+                    text("1<").size(20),
+                    text_input("Choose the vitesse!", &self.message.as_str())
+                        .on_input(Message::InputVitesse)
+                        .size(20),
+                    Button::new("OK").on_press(Message::Convert),
+                    Text::new(&self.message).size(20),
+                    text("<500").size(20),
+                ];
+
+                let fillingmethod_choice_row = row![
+                    text("1<").size(20),
+                    text_input("Choose the number of cells!", &self.message.as_str())
+                        .on_input(Message::InputChangeMethod),
+                    Button::new("OK").on_press(Message::Convert),
+                    Text::new(&self.message).size(20),
+                    text("<5000").size(20)
                 ];
                 init = init.push(vitesse_row);
+                init = init.push(text("Don\'t worry, you can change it later.").size(15));
+                init = init.push(fillingmethod_choice_row);
                 init = init.push(button("Simulation").on_press(Message::Simulation));
                 return init.into();
             }
@@ -248,41 +278,64 @@ impl Conway {
             }
             column_conway = column_conway.push(row);
         }
-        let control_row = row![
+        let lecture_buttons = row![
             button("Update").on_press(Message::Update),
             if self.playing {
                 button(Svg::from_path("images/pause.svg"))
-                    .height(40)
-                    .width(40)
+                    .height(35)
+                    .width(35)
                     .on_press(Message::PlayPause)
+                    .style(button::secondary)
             } else {
                 button(Svg::from_path("images/play.svg"))
-                    .height(40)
-                    .width(40)
+                    .height(35)
+                    .width(35)
                     .on_press(Message::PlayPause)
+                    .style(button::secondary)
             },
             button(Svg::from_path("images/stop.svg"))
-                .height(40)
-                .width(40)
-                .on_press(Message::Réinitialiser),
-            button(">>").on_press(Message::IncreaseQuickVitesse),
-            button(">").on_press(Message::IncreaseVitesse),
-            button("<").on_press(Message::DecreaseVitesse),
-            button("<<").on_press(Message::DecreaseQuickVitesse),
-            button("Grille").on_press(Message::Grid),
+                .height(35)
+                .width(35)
+                .on_press(Message::Réinitialiser)
+                .style(button::secondary),
+        ];
+
+        let settings_buttons = row![
+            button("Grille")
+                .on_press(Message::Grid)
+                .style(button::secondary),
             button("Paramètres").on_press(Message::Settings),
+            button("Exemples").on_press(Message::Examples),
         ];
+
+        let vitesse_buttons = row![
+            button(">>")
+                .on_press(Message::IncreaseQuickVitesse)
+                .style(button::secondary),
+            button(">")
+                .on_press(Message::IncreaseVitesse)
+                .style(button::secondary),
+            button("<")
+                .on_press(Message::DecreaseVitesse)
+                .style(button::secondary),
+            button("<<")
+                .on_press(Message::DecreaseQuickVitesse)
+                .style(button::secondary),
+        ];
+
         let info_row = row![
-            text("Génération:"),
-            text(self.generation.to_string()).size(15),
+            text("Génération:").size(20),
+            text(self.generation.to_string()).size(21),
             text("\t"),
-            text("Cellules vivantes:"),
-            text(self.number_of_living_cells.to_string()).size(15),
+            text("Cellules vivantes:").size(20),
+            text(self.number_of_living_cells.to_string()).size(21),
             text("\t"),
-            text("Vitesse:"),
-            text(self.vitesse.to_string()).size(15),
+            text("Vitesse:").size(21),
+            text(self.vitesse.to_string()).size(20),
         ];
-        column![column_conway, info_row, control_row].into()
+
+        let control_row = row![lecture_buttons, vitesse_buttons, settings_buttons].spacing(242);
+        column![column_conway, control_row, info_row,].into()
     }
 
     fn update_cells(&mut self) {
@@ -321,11 +374,13 @@ impl Conway {
                 self.number_of_living_cells = value
             }
             Message::InitDensity(value) => self.living_density = value,
-            Message::FillingMethodChanged(method) => self.filling_method = method,
+            Message::FillingMethodChanged => {
+                self.filling_method = !self.filling_method;
+            }
             Message::Simulation => {
                 match self.filling_method {
-                    FillingMethod::Density => Self::build_cells_with_density(self),
-                    FillingMethod::NumberOfCells => Self::build_cells_with_number_of_cells(self),
+                    true => Self::build_cells_with_density(self),
+                    false => Self::build_cells_with_number_of_cells(self),
                 };
                 self.screen = Screen::Simul;
             }
@@ -333,7 +388,7 @@ impl Conway {
             Message::Réinitialiser => {
                 Self::réinitialiser(self);
                 self.playing = false;
-                self.generation = 1
+                self.generation = 1;
             }
 
             Message::ActiverDésactiver(x, y) => {
@@ -349,32 +404,69 @@ impl Conway {
             Message::Grid => self.grid_state = !self.grid_state,
             Message::IncreaseVitesse => {
                 if self.vitesse >= 5 {
-                    self.vitesse = self.vitesse + 5
+                    self.vitesse = self.vitesse + 5;
                 } else {
-                    self.vitesse = 0
+                    self.vitesse = 0;
                 }
             }
             Message::DecreaseVitesse => {
                 if self.vitesse <= 150 {
-                    self.vitesse = self.vitesse - 5
+                    self.vitesse = self.vitesse - 5;
                 } else {
-                    self.vitesse = 150
+                    self.vitesse = 150;
                 }
             }
             Message::IncreaseQuickVitesse => {
                 if self.vitesse >= 25 {
-                    self.vitesse = self.vitesse + 25
+                    self.vitesse = self.vitesse + 25;
                 } else {
-                    self.vitesse = 0
+                    self.vitesse = 0;
                 }
             }
             Message::DecreaseQuickVitesse => {
                 if self.vitesse <= 1500 {
-                    self.vitesse = self.vitesse - 25
+                    self.vitesse = self.vitesse - 25;
                 } else {
-                    self.vitesse = 150
+                    self.vitesse = 150;
                 }
             }
+            Message::Examples => self.screen = Screen::Example,
+            Message::InputVitesse(n) => {
+                if n.chars().all(|c| c.is_ascii_digit()) || n.is_empty() {
+                    self.input = n;
+                }
+            }
+
+            Message::ConvertVitesse => match self.input.parse() {
+                Ok(n) => {
+                    if n >= 1 && n <= 250 {
+                        self.vitesse = n;
+                    }
+                    format!("Nombre valide : {}", self.vitesse);
+                }
+                Err(_) => self.message = "Erreur : Entrez un nombre valide".to_string(),
+            },
+            Message::InputChangeMethod(n) => {
+                if n.chars().all(|c| c.is_ascii_digit()) || n.is_empty() {
+                    self.input = n;
+                }
+            }
+            Message::ConvertDensity => match self.input.parse() {
+                Ok(n) => {
+                    if n >= 1 && n <= 100 {
+                        self.living_density = n;
+                    }
+                }
+                Err(_) => self.message = "Erreur : Entrez un nombre valide".to_string(),
+            },
+            Message::Convert => match self.input.parse() {
+                Ok(n) => {
+                    if n >= 1 && n <= 5000 {
+                        self.nb_init_cells = n;
+                    }
+                }
+                Err(_) => self.message = "Erreur : Entrez un nombre valide".to_string(),
+            },
         }
     }
 }
@@ -403,13 +495,14 @@ impl Default for Conway {
             generation: 1,
             screen: Screen::Init,
             nb_init_cells: count_cells,
-            nb_max_generation: 100,
             living_density: 25,
-            filling_method: FillingMethod::Density,
+            filling_method: true,
             number_of_living_cells: count_cells,
             initial_tab: cells_tab,
-            vitesse: 250,
+            vitesse: 100,
             grid_state: true,
+            message: "".to_string(),
+            input: "".to_string(),
         }
     }
 }
