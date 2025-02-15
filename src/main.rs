@@ -20,11 +20,14 @@ enum Message {
     Réinitialiser,
     ActiverDésactiver(usize, usize),
     FillingMethodChanged(FillingMethod),
-    Generationchange(u32),
     InitCellsNumber(u32),
-    InitGenNumber(u32),
     InitDensity(u32),
     ChangeVitesse(u32),
+    Grid,
+    IncreaseVitesse,
+    DecreaseVitesse,
+    IncreaseQuickVitesse,
+    DecreaseQuickVitesse,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -56,6 +59,7 @@ struct Conway {
     number_of_living_cells: u32,
     initial_tab: [[Cell; Self::SIZE]; Self::SIZE],
     vitesse: u32,
+    grid_state: bool,
 }
 
 impl Conway {
@@ -161,14 +165,6 @@ impl Conway {
 
     fn init(&self) -> Element<Message> {
         let mut init = Column::new();
-        let choose_nb_gen_row = row![
-            slider(0..=1000, self.nb_max_generation, Message::InitGenNumber,),
-            text(self.nb_max_generation.to_string())
-        ];
-
-        init = init.push(text("Nombre de générations"));
-        init = init.push(choose_nb_gen_row);
-
         let density_radio = radio(
             "Density method",
             FillingMethod::Density,
@@ -195,7 +191,7 @@ impl Conway {
                 init = init.push(fillingmethod_choice_row);
                 let vitesse_row = row![
                     row![text("fps"),],
-                    slider(1..=1023, self.vitesse, Message::ChangeVitesse),
+                    slider(2..=500, self.vitesse, Message::ChangeVitesse),
                     text(self.vitesse.to_string())
                 ];
                 init = init.push(vitesse_row);
@@ -226,6 +222,7 @@ impl Conway {
             let mut row = Row::new();
             for x in 0..Self::SIZE {
                 let living = self.cells_tab[x][y].living;
+                let grid_state = self.grid_state;
                 row = row.push(
                     Self::default_button(x, y).style(move |_theme: &Theme, _status| {
                         button::Style {
@@ -235,7 +232,12 @@ impl Conway {
                                 Color::WHITE.into()
                             }),
                             border: Border {
-                                color: color!(0xBFBFBF),
+                                color: Some(if grid_state {
+                                    color!(0xBFBFBF)
+                                } else {
+                                    Color::WHITE.into()
+                                })
+                                .unwrap(),
                                 width: 1.0,
                                 ..Border::default()
                             },
@@ -263,24 +265,22 @@ impl Conway {
                 .height(40)
                 .width(40)
                 .on_press(Message::Réinitialiser),
-            text(self.nb_max_generation.to_string()),
+            button(">>").on_press(Message::IncreaseQuickVitesse),
+            button(">").on_press(Message::IncreaseVitesse),
+            button("<").on_press(Message::DecreaseVitesse),
+            button("<<").on_press(Message::DecreaseQuickVitesse),
+            button("Grille").on_press(Message::Grid),
             button("Paramètres").on_press(Message::Settings),
         ];
         let info_row = row![
-            text("1".to_string()),
-            slider(
-                1..=self.nb_max_generation,
-                self.generation,
-                Message::Generationchange,
-            ),
             text("Génération:"),
-            text(self.generation.to_string()),
+            text(self.generation.to_string()).size(15),
             text("\t"),
             text("Cellules vivantes:"),
-            text(self.number_of_living_cells.to_string()),
+            text(self.number_of_living_cells.to_string()).size(15),
             text("\t"),
             text("Vitesse:"),
-            text(self.vitesse.to_string()),
+            text(self.vitesse.to_string()).size(15),
         ];
         column![column_conway, info_row, control_row].into()
     }
@@ -312,27 +312,15 @@ impl Conway {
     fn update(&mut self, message: Message) {
         match message {
             Message::Update => {
-                if self.generation < self.nb_max_generation {
-                    Self::update_cells(self);
-                    self.generation += 1;
-                }
+                Self::update_cells(self);
+                self.generation += 1;
             }
             Message::PlayPause => self.playing = !self.playing,
-            Message::Generationchange(value) => {
-                if value >= self.generation && self.generation <= self.nb_max_generation {
-                    self.generation = value;
-                    Self::update_cells(self);
-                }
-            }
             Message::InitCellsNumber(value) => {
                 self.nb_init_cells = value;
                 self.number_of_living_cells = value
             }
             Message::InitDensity(value) => self.living_density = value,
-            Message::InitGenNumber(value) => {
-                self.nb_max_generation = value;
-                self.generation = 1;
-            }
             Message::FillingMethodChanged(method) => self.filling_method = method,
             Message::Simulation => {
                 match self.filling_method {
@@ -357,7 +345,36 @@ impl Conway {
                     self.cells_tab[x][y].living = true;
                 }
             }
-            Message::ChangeVitesse(valeur) => self.vitesse = 1001 - valeur,
+            Message::ChangeVitesse(valeur) => self.vitesse = valeur,
+            Message::Grid => self.grid_state = !self.grid_state,
+            Message::IncreaseVitesse => {
+                if self.vitesse >= 5 {
+                    self.vitesse = self.vitesse + 5
+                } else {
+                    self.vitesse = 0
+                }
+            }
+            Message::DecreaseVitesse => {
+                if self.vitesse <= 150 {
+                    self.vitesse = self.vitesse - 5
+                } else {
+                    self.vitesse = 150
+                }
+            }
+            Message::IncreaseQuickVitesse => {
+                if self.vitesse >= 25 {
+                    self.vitesse = self.vitesse + 25
+                } else {
+                    self.vitesse = 0
+                }
+            }
+            Message::DecreaseQuickVitesse => {
+                if self.vitesse <= 1500 {
+                    self.vitesse = self.vitesse - 25
+                } else {
+                    self.vitesse = 150
+                }
+            }
         }
     }
 }
@@ -391,7 +408,8 @@ impl Default for Conway {
             filling_method: FillingMethod::Density,
             number_of_living_cells: count_cells,
             initial_tab: cells_tab,
-            vitesse: 1000,
+            vitesse: 250,
+            grid_state: true,
         }
     }
 }
