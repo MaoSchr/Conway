@@ -33,7 +33,7 @@ enum Message {
     InputVitesse(String),
     ConvertVitesse,
     ConvertDensity,
-    Convert,
+    ConvertCells,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -60,8 +60,10 @@ struct Conway {
     initial_tab: [[Cell; Self::SIZE]; Self::SIZE],
     vitesse: u32,
     grid_state: bool,
-    message: String,
-    input: String,
+    input_v: String,
+    input_c: String,
+    erreur_v: bool,
+    erreur_c: bool,
 }
 
 impl Conway {
@@ -188,58 +190,79 @@ impl Conway {
         }
         let fillingmethod_row = column![
             text("Construction du tableau initial").size(35),
-            row![density_button, nb_cells_button].spacing(50).center(),
+            row![density_button, nb_cells_button].spacing(50)
         ];
 
         init = init.push(fillingmethod_row);
+
+        init = init.push(Row::new());
+
         match self.filling_method {
             true => {
                 let vitesse_row = row![
                     text("1<").size(20),
-                    text_input("Choose the vitesse!", &self.message.as_str())
-                        .on_input(Message::InputChangeMethod)
+                    text_input("Choose the vitesse!", &self.input_v.as_str())
+                        .on_input(Message::InputVitesse)
                         .size(20),
-                    Button::new("OK").on_press(Message::Convert),
-                    Text::new(&self.message).size(20),
+                    Button::new("OK").on_press(Message::ConvertVitesse),
                     text("<500").size(20),
                 ];
 
                 let fillingmethod_choice_row = row![
                     text("1%<").size(20),
-                    text_input("Choose the density of cells!", &self.message.as_str())
+                    text_input("Choose the density of cells!", &self.input_c.as_str())
                         .on_input(Message::InputChangeMethod),
                     Button::new("OK").on_press(Message::ConvertDensity),
-                    Text::new(&self.message).size(20),
                     text("<100%").size(20)
                 ];
                 init = init.push(vitesse_row);
                 init = init.push(text("Don\'t worry, you can change it later.").size(15));
                 init = init.push(fillingmethod_choice_row);
+                if self.erreur_v == false {
+                    init = init.push(row![text(format!("Vitesse validée: {0}", self.vitesse))]);
+                }
+                if self.erreur_c == false {
+                    init = init.push(row![text(format!(
+                        "Densité de cellules initiales: {0}",
+                        self.living_density
+                    ))])
+                };
                 init = init.push(button("Simulation").on_press(Message::Simulation));
                 return init.into();
             }
             false => {
                 let vitesse_row = row![
                     text("1<").size(20),
-                    text_input("Choose the vitesse!", &self.message.as_str())
+                    text_input("Choose the vitesse!", &self.input_v.as_str())
                         .on_input(Message::InputVitesse)
                         .size(20),
-                    Button::new("OK").on_press(Message::Convert),
-                    Text::new(&self.message).size(20),
+                    Button::new("OK").on_press(Message::ConvertVitesse),
                     text("<500").size(20),
                 ];
 
                 let fillingmethod_choice_row = row![
                     text("1<").size(20),
-                    text_input("Choose the number of cells!", &self.message.as_str())
+                    text_input("Choose the number of cells!", &self.input_c.as_str())
                         .on_input(Message::InputChangeMethod),
-                    Button::new("OK").on_press(Message::Convert),
-                    Text::new(&self.message).size(20),
+                    Button::new("OK").on_press(Message::ConvertCells),
                     text("<5000").size(20)
                 ];
                 init = init.push(vitesse_row);
                 init = init.push(text("Don\'t worry, you can change it later.").size(15));
                 init = init.push(fillingmethod_choice_row);
+                if self.erreur_v == false {
+                    init = init.push(row![text(format!("Vitesse validée: {0}", self.vitesse))]);
+                } else {
+                    init = init.push(row![text("Rentrez un nombre valide!")]);
+                }
+                if self.erreur_c == false {
+                    init = init.push(row![text(format!(
+                        "Nombres de cellules initiales: {0}",
+                        self.number_of_living_cells
+                    ))]);
+                } else {
+                    init = init.push(row![text("Rentrez un nombre valide!")]);
+                }
                 init = init.push(button("Simulation").on_press(Message::Simulation));
                 return init.into();
             }
@@ -432,41 +455,47 @@ impl Conway {
             }
             Message::Examples => self.screen = Screen::Example,
             Message::InputVitesse(n) => {
-                if n.chars().all(|c| c.is_ascii_digit()) || n.is_empty() {
-                    self.input = n;
+                if n.chars().all(|c| c.is_ascii_digit()) {
+                    self.input_v = n;
                 }
             }
 
-            Message::ConvertVitesse => match self.input.parse() {
-                Ok(n) => {
-                    if n >= 1 && n <= 250 {
-                        self.vitesse = n;
-                    }
-                    format!("Nombre valide : {}", self.vitesse);
-                }
-                Err(_) => self.message = "Erreur : Entrez un nombre valide".to_string(),
-            },
-            Message::InputChangeMethod(n) => {
-                if n.chars().all(|c| c.is_ascii_digit()) || n.is_empty() {
-                    self.input = n;
+            Message::ConvertVitesse => {
+                let n = self.input_v.parse().unwrap();
+                if n >= 1 && n <= 500 {
+                    self.vitesse = n;
+                    self.erreur_v = false;
+                } else {
+                    self.input_v = "".to_string();
+                    self.erreur_v = true;
                 }
             }
-            Message::ConvertDensity => match self.input.parse() {
-                Ok(n) => {
-                    if n >= 1 && n <= 100 {
-                        self.living_density = n;
-                    }
+            Message::InputChangeMethod(n) => {
+                if n.chars().all(|c| c.is_ascii_digit()) {
+                    self.input_c = n;
                 }
-                Err(_) => self.message = "Erreur : Entrez un nombre valide".to_string(),
-            },
-            Message::Convert => match self.input.parse() {
-                Ok(n) => {
-                    if n >= 1 && n <= 5000 {
-                        self.nb_init_cells = n;
-                    }
+            }
+            Message::ConvertDensity => {
+                let n = self.input_c.parse().unwrap();
+                if n >= 1 && n <= 100 {
+                    self.living_density = n;
+                    self.erreur_c = false;
+                } else {
+                    self.input_c = "".to_string();
+                    self.erreur_c = true;
                 }
-                Err(_) => self.message = "Erreur : Entrez un nombre valide".to_string(),
-            },
+            }
+
+            Message::ConvertCells => {
+                let n = self.input_c.parse().unwrap();
+                if n >= 1 && n <= 5000 {
+                    self.number_of_living_cells = n;
+                    self.erreur_c = false;
+                } else {
+                    self.input_c = "".to_string();
+                    self.erreur_c = true;
+                }
+            }
         }
     }
 }
@@ -501,8 +530,10 @@ impl Default for Conway {
             initial_tab: cells_tab,
             vitesse: 100,
             grid_state: true,
-            message: "".to_string(),
-            input: "".to_string(),
+            input_c: "".to_string(),
+            input_v: "".to_string(),
+            erreur_c: true,
+            erreur_v: true,
         }
     }
 }
