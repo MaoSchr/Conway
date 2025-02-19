@@ -41,6 +41,7 @@ enum Screen {
     Init,
     Simul,
     Example,
+    Conway,
 }
 
 #[derive(Clone, Copy)]
@@ -156,6 +157,7 @@ impl Conway {
             Screen::Init => "Jeu de Conway - Paramètres".into(),
             Screen::Simul => "Jeu de Conway - Simulation".into(),
             Screen::Example => "Jeu de Conway - Exemples".into(),
+            Screen::Conway => "Conway".into(),
         }
     }
 
@@ -164,6 +166,7 @@ impl Conway {
             Screen::Init => self.init(),
             Screen::Simul => self.simulation(),
             Screen::Example => self.examples(),
+            Screen::Conway => self.conway(),
         };
         container(screen).into()
     }
@@ -173,6 +176,22 @@ impl Conway {
             button("Simulation").on_press(Message::Simulation),
             text("En cours...")
         ]
+        .into()
+    }
+
+    fn conway(&self) -> Element<Message> {
+        container(column![
+            container(text("Jeu de Conway").size(50)).center(Length::Fill),
+            container(
+                row![
+                    button("Paramètres").on_press(Message::Settings),
+                    button("Bac à sable").on_press(Message::Simulation)
+                ]
+                .spacing(50)
+            )
+            .center(Length::Fill)
+        ])
+        .center(Length::Fill)
         .into()
     }
 
@@ -400,13 +419,36 @@ impl Conway {
             Message::FillingMethodChanged => {
                 self.filling_method = !self.filling_method;
             }
-            Message::Simulation => {
-                match self.filling_method {
-                    true => Self::build_cells_with_density(self),
-                    false => Self::build_cells_with_number_of_cells(self),
-                };
-                self.screen = Screen::Simul;
-            }
+            Message::Simulation => match self.screen {
+                Screen::Conway => {
+                    let cells_tab = [[Cell { living: false }; Self::SIZE]; Self::SIZE];
+                    *self = Conway {
+                        cells_tab,
+                        playing: false,
+                        generation: 1,
+                        screen: Screen::Simul,
+                        nb_init_cells: 0,
+                        living_density: 0,
+                        filling_method: true,
+                        number_of_living_cells: 0,
+                        initial_tab: cells_tab,
+                        vitesse: 100,
+                        grid_state: true,
+                        input_c: "".to_string(),
+                        input_v: "".to_string(),
+                        erreur_c: true,
+                        erreur_v: true,
+                    }
+                }
+                Screen::Init => {
+                    match self.filling_method {
+                        true => Self::build_cells_with_density(self),
+                        false => Self::build_cells_with_number_of_cells(self),
+                    };
+                    self.screen = Screen::Simul;
+                }
+                _ => (),
+            },
             Message::Settings => self.screen = Screen::Init,
             Message::Réinitialiser => {
                 Self::réinitialiser(self);
@@ -522,7 +564,7 @@ impl Default for Conway {
             cells_tab,
             playing: false,
             generation: 1,
-            screen: Screen::Init,
+            screen: Screen::Conway,
             nb_init_cells: count_cells,
             living_density: 25,
             filling_method: true,
