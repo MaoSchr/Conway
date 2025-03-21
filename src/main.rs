@@ -1,9 +1,14 @@
+use std::fs::File;
+use std::io::Write;
+
 use iced::{
     color, time,
-    widget::{button, column, container, row, text, text_input, Button, Column, Row, Svg, Text},
+    widget::{button, column, container, row, text, text_input, Button, Column, Row, Svg},
     Border, Color, Element, Length, Subscription, Theme,
 };
+
 use rand::Rng;
+use serde::{ser::SerializeSeq, Deserialize, Serialize, Serializer};
 
 fn main() {
     let _ = iced::application(Conway::title, Conway::update, Conway::view)
@@ -34,37 +39,67 @@ enum Message {
     ConvertVitesse,
     ConvertDensity,
     ConvertCells,
+    Sauvegarder,
+    Charger_E,
+    Charger_S,
+    Conway,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 enum Screen {
     Init,
     Simul,
     Example,
     Conway,
+    Examples_C,
+    Saves_C,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 struct Cell {
     living: bool,
 }
+#[derive(Debug, Clone, Copy)]
+struct Tab([[Cell; Conway::SIZE]; Conway::SIZE]);
+impl Serialize for Tab {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(Conway::SIZE * Conway::SIZE))?;
+        for row in &self.0 {
+            for cell in row {
+                seq.serialize_element(&cell)?;
+            }
+        }
 
+        seq.end()
+    }
+}
+
+struct Savings {
+    conway: Conway,
+}
+
+//#[serde_as]
+#[derive(Serialize, Debug)]
 struct Conway {
     nb_init_cells: u32,
-    cells_tab: [[Cell; Self::SIZE]; Self::SIZE],
+    cells_tab: Tab,
     playing: bool,
-    generation: u32,
+    generation: u64,
     screen: Screen,
     filling_method: bool,
     living_density: u32,
     number_of_living_cells: u32,
-    initial_tab: [[Cell; Self::SIZE]; Self::SIZE],
+    initial_tab: Tab,
     vitesse: u32,
     grid_state: bool,
     input_v: String,
     input_c: String,
     erreur_v: bool,
     erreur_c: bool,
+    nb_sauvegardes: usize,
 }
 
 impl Conway {
@@ -89,7 +124,7 @@ impl Conway {
                 let nx = ((x as isize) + dx).rem_euclid(Self::SIZE as isize) as usize;
                 let ny = ((y as isize) + dy).rem_euclid(Self::SIZE as isize) as usize;
 
-                if self.cells_tab[nx as usize][ny as usize].living {
+                if self.cells_tab.0[nx as usize][ny as usize].living {
                     living_neighbours += 1;
                 }
             }
@@ -100,14 +135,14 @@ impl Conway {
     fn build_cells_with_density(&mut self) {
         let mut count_cells = 0;
         let mut rng = rand::thread_rng();
-        let mut cells_tab = [[Cell { living: false }; Self::SIZE]; Self::SIZE];
+        let mut cells_tab = Tab::default();
 
         for x in 0..Self::SIZE {
             for y in 0..Self::SIZE {
-                cells_tab[x][y] = Cell {
+                cells_tab.0[x][y] = Cell {
                     living: rng.gen_bool(self.living_density as f64 / 100.0),
                 };
-                if cells_tab[x][y].living {
+                if cells_tab.0[x][y].living {
                     count_cells += 1;
                 }
             }
@@ -121,16 +156,12 @@ impl Conway {
     fn build_cells_with_number_of_cells(&mut self) {
         let mut count_cells = 0;
         let mut rng = rand::thread_rng();
-        for x in 0..Self::SIZE {
-            for y in 0..Self::SIZE {
-                self.cells_tab[x][y].living = false;
-            }
-        }
+        self.cells_tab = Tab::default();
         while count_cells < self.nb_init_cells {
             let x = rng.gen_range(0..Self::SIZE);
             let y = rng.gen_range(0..Self::SIZE);
-            if !self.cells_tab[x][y].living {
-                self.cells_tab[x][y].living = true;
+            if !self.cells_tab.0[x][y].living {
+                self.cells_tab.0[x][y].living = true;
                 count_cells += 1;
             }
         }
@@ -158,6 +189,8 @@ impl Conway {
             Screen::Simul => "Jeu de Conway - Simulation".into(),
             Screen::Example => "Jeu de Conway - Exemples".into(),
             Screen::Conway => "Conway".into(),
+            Screen::Examples_C => "Charger un exemple".into(),
+            Screen::Saves_C => "Charger une sauvegarde".into(),
         }
     }
 
@@ -167,12 +200,32 @@ impl Conway {
             Screen::Simul => self.simulation(),
             Screen::Example => self.examples(),
             Screen::Conway => self.conway(),
+            Screen::Examples_C => self.charge_examples(),
+            Screen::Saves_C => self.charger_saves(),
         };
         container(screen).into()
     }
 
+    fn charge_examples(&self) -> Element<Message> {
+        column![
+            text("En cours..."),
+            button("Menu_principal").on_press(Message::Conway)
+        ]
+        .into()
+    }
+
+    fn charger_saves(&self) -> Element<Message> {
+        column![
+            text("En cours..."),
+            button("Menu_principal").on_press(Message::Conway)
+        ]
+        .into()
+    }
+
     fn examples(&self) -> Element<Message> {
         column![
+            button("Charger un exemple").on_press(Message::Charger_E),
+            button("Charger une sauvegarde").on_press(Message::Charger_S),
             button("Simulation").on_press(Message::Simulation),
             text("En cours...")
         ]
@@ -185,7 +238,8 @@ impl Conway {
             container(
                 row![
                     button("Paramètres").on_press(Message::Settings),
-                    button("Bac à sable").on_press(Message::Simulation)
+                    button("Bac à sable").on_press(Message::Simulation),
+                    button("Charger une sauvegarde").on_press(Message::Examples)
                 ]
                 .spacing(50)
             )
@@ -194,7 +248,6 @@ impl Conway {
         .center(Length::Fill)
         .into()
     }
-
     fn init(&self) -> Element<Message> {
         let mut init = Column::new();
         let mut density_button = button("Density Method").on_press(Message::FillingMethodChanged);
@@ -293,7 +346,7 @@ impl Conway {
         for y in 0..Self::SIZE {
             let mut row = Row::new();
             for x in 0..Self::SIZE {
-                let living = self.cells_tab[x][y].living;
+                let living = self.cells_tab.0[x][y].living;
                 let grid_state = self.grid_state;
                 row = row.push(
                     Self::default_button(x, y).style(move |_theme: &Theme, _status| {
@@ -348,6 +401,7 @@ impl Conway {
                 .style(button::secondary),
             button("Paramètres").on_press(Message::Settings),
             button("Exemples").on_press(Message::Examples),
+            button("Sauvegarder").on_press(Message::Sauvegarder),
         ];
 
         let vitesse_buttons = row![
@@ -386,19 +440,19 @@ impl Conway {
             for y in 0..Self::SIZE {
                 let living_neighbours = self.check_neighbours(x, y);
 
-                next_cells_tab[x][y].living = match (self.cells_tab[x][y].living, living_neighbours)
-                {
-                    (true, 2) | (true, 3) => true, // Reste en vie si 2 ou 3 voisins vivants
-                    (false, 3) => {
-                        self.number_of_living_cells += 1;
-                        true
-                    } // Devient vivant si exactement 3 voisins vivants
-                    (true, _) => {
-                        self.number_of_living_cells -= 1;
-                        false
-                    }
-                    _ => false, // Sinon, reste ou devient mort
-                };
+                next_cells_tab.0[x][y].living =
+                    match (self.cells_tab.0[x][y].living, living_neighbours) {
+                        (true, 2) | (true, 3) => true, // Reste en vie si 2 ou 3 voisins vivants
+                        (false, 3) => {
+                            self.number_of_living_cells += 1;
+                            true
+                        } // Devient vivant si exactement 3 voisins vivants
+                        (true, _) => {
+                            self.number_of_living_cells -= 1;
+                            false
+                        }
+                        _ => false, // Sinon, reste ou devient mort
+                    };
             }
         }
         self.cells_tab = next_cells_tab;
@@ -421,7 +475,7 @@ impl Conway {
             }
             Message::Simulation => match self.screen {
                 Screen::Conway => {
-                    let cells_tab = [[Cell { living: false }; Self::SIZE]; Self::SIZE];
+                    let cells_tab = Tab::default();
                     *self = Conway {
                         cells_tab,
                         playing: false,
@@ -431,13 +485,14 @@ impl Conway {
                         living_density: 0,
                         filling_method: true,
                         number_of_living_cells: 0,
-                        initial_tab: cells_tab,
+                        initial_tab: (cells_tab),
                         vitesse: 100,
                         grid_state: true,
                         input_c: "".to_string(),
                         input_v: "".to_string(),
                         erreur_c: true,
                         erreur_v: true,
+                        nb_sauvegardes: 0,
                     }
                 }
                 Screen::Init => {
@@ -447,7 +502,10 @@ impl Conway {
                     };
                     self.screen = Screen::Simul;
                 }
-                _ => (),
+                Screen::Example => self.screen = Screen::Simul,
+                Screen::Simul => (),
+                Screen::Saves_C => (),
+                Screen::Examples_C => (),
             },
             Message::Settings => self.screen = Screen::Init,
             Message::Réinitialiser => {
@@ -457,12 +515,12 @@ impl Conway {
             }
 
             Message::ActiverDésactiver(x, y) => {
-                if self.cells_tab[x][y].living {
+                if self.cells_tab.0[x][y].living {
                     self.number_of_living_cells -= 1;
-                    self.cells_tab[x][y].living = false;
+                    self.cells_tab.0[x][y].living = false;
                 } else {
                     self.number_of_living_cells += 1;
-                    self.cells_tab[x][y].living = true;
+                    self.cells_tab.0[x][y].living = true;
                 }
             }
             Message::ChangeVitesse(valeur) => self.vitesse = valeur,
@@ -495,6 +553,7 @@ impl Conway {
                     self.vitesse = 150;
                 }
             }
+            Message::Conway => self.screen = Screen::Conway,
             Message::Examples => self.screen = Screen::Example,
             Message::InputVitesse(n) => {
                 if n.chars().all(|c| c.is_ascii_digit()) {
@@ -538,6 +597,50 @@ impl Conway {
                     self.erreur_c = true;
                 }
             }
+            Message::Sauvegarder => {
+                // Sérialisation avec gestion des erreurs
+                let serialized = match serde_json::to_string(&self) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("Erreur lors de la sérialisation : {}", e);
+                        return;
+                    }
+                };
+
+                // Création du fichier avec un nom dynamique
+                let file_name = format!("Sauvegarde{}.txt", self.nb_sauvegardes);
+                self.nb_sauvegardes += 1;
+                let mut file = match File::create(&file_name) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        eprintln!("Erreur lors de la création du fichier {}: {}", file_name, e);
+                        return;
+                    }
+                };
+
+                // Écriture des données sérialisées
+                if let Err(e) = file.write_all(serialized.as_bytes()) {
+                    eprintln!(
+                        "Erreur lors de l'écriture dans le fichier {}: {}",
+                        file_name, e
+                    );
+                };
+            }
+            Message::Charger_S => self.screen = Screen::Saves_C,
+            Message::Charger_E => self.screen = Screen::Examples_C,
+        }
+    }
+}
+impl Default for Tab {
+    fn default() -> Self {
+        Tab([[Cell { living: false }; Conway::SIZE]; Conway::SIZE])
+    }
+}
+
+impl Default for Savings {
+    fn default() -> Self {
+        Savings {
+            conway: Conway::default(),
         }
     }
 }
@@ -547,14 +650,13 @@ impl Default for Conway {
         let mut count_cells = 0;
         let density = 25;
         let mut rng = rand::thread_rng();
-        let mut cells_tab = [[Cell { living: false }; Self::SIZE]; Self::SIZE];
-
+        let mut cells_tab = Tab::default();
         for x in 0..Self::SIZE {
             for y in 0..Self::SIZE {
-                cells_tab[x][y] = Cell {
+                cells_tab.0[x][y] = Cell {
                     living: rng.gen_bool(density as f64 / 100.0),
                 };
-                if cells_tab[x][y].living {
+                if cells_tab.0[x][y].living {
                     count_cells += 1;
                 }
             }
@@ -576,6 +678,7 @@ impl Default for Conway {
             input_v: "".to_string(),
             erreur_c: true,
             erreur_v: true,
+            nb_sauvegardes: 0,
         }
     }
 }
