@@ -7,9 +7,9 @@ use iced::{
     Border, Color, Element, Length, Subscription, Theme,
 };
 
+use image::{Rgb, RgbImage};
 use rand::Rng;
 use serde::{ser::SerializeSeq, Deserialize, Serialize, Serializer};
-
 fn main() {
     let _ = iced::application(Conway::title, Conway::update, Conway::view)
         .subscription(Conway::subscription)
@@ -40,8 +40,8 @@ enum Message {
     ConvertDensity,
     ConvertCells,
     Sauvegarder,
-    Charger_E,
-    Charger_S,
+    ChargerE,
+    ChargerS,
     Conway,
 }
 
@@ -51,8 +51,8 @@ enum Screen {
     Simul,
     Example,
     Conway,
-    Examples_C,
-    Saves_C,
+    ExamplesC,
+    SavesC,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -61,6 +61,7 @@ struct Cell {
 }
 #[derive(Debug, Clone, Copy)]
 struct Tab([[Cell; Conway::SIZE]; Conway::SIZE]);
+
 impl Serialize for Tab {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -75,10 +76,6 @@ impl Serialize for Tab {
 
         seq.end()
     }
-}
-
-struct Savings {
-    conway: Conway,
 }
 
 //#[serde_as]
@@ -189,8 +186,8 @@ impl Conway {
             Screen::Simul => "Jeu de Conway - Simulation".into(),
             Screen::Example => "Jeu de Conway - Exemples".into(),
             Screen::Conway => "Conway".into(),
-            Screen::Examples_C => "Charger un exemple".into(),
-            Screen::Saves_C => "Charger une sauvegarde".into(),
+            Screen::ExamplesC => "Charger un exemple".into(),
+            Screen::SavesC => "Charger une sauvegarde".into(),
         }
     }
 
@@ -200,8 +197,8 @@ impl Conway {
             Screen::Simul => self.simulation(),
             Screen::Example => self.examples(),
             Screen::Conway => self.conway(),
-            Screen::Examples_C => self.charge_examples(),
-            Screen::Saves_C => self.charger_saves(),
+            Screen::ExamplesC => self.charge_examples(),
+            Screen::SavesC => self.charger_saves(),
         };
         container(screen).into()
     }
@@ -224,8 +221,8 @@ impl Conway {
 
     fn examples(&self) -> Element<Message> {
         column![
-            button("Charger un exemple").on_press(Message::Charger_E),
-            button("Charger une sauvegarde").on_press(Message::Charger_S),
+            button("Charger un exemple").on_press(Message::ChargerE),
+            button("Charger une sauvegarde").on_press(Message::ChargerS),
             button("Simulation").on_press(Message::Simulation),
             text("En cours...")
         ]
@@ -341,6 +338,21 @@ impl Conway {
         }
     }
 
+    fn create_miniature(&self) {
+        let mut img = RgbImage::new(Self::SIZE as u32, Self::SIZE as u32);
+        for i in 0..Self::SIZE {
+            for j in 0..Self::SIZE {
+                if self.cells_tab.0[i][j].living {
+                    img.put_pixel(i as u32, j as u32, Rgb([0, 0, 0]));
+                }
+            }
+        }
+        img.save(format!(
+            "/saves/miniatures/miniature{}",
+            self.nb_sauvegardes
+        ))
+        .expect("Erreur lors de la sauvegarde de l'image");
+    }
     fn simulation(&self) -> Element<Message> {
         let mut column_conway = Column::new();
         for y in 0..Self::SIZE {
@@ -399,9 +411,15 @@ impl Conway {
             button("Grille")
                 .on_press(Message::Grid)
                 .style(button::secondary),
-            button("Paramètres").on_press(Message::Settings),
-            button("Exemples").on_press(Message::Examples),
-            button("Sauvegarder").on_press(Message::Sauvegarder),
+            button("Paramètres")
+                .on_press(Message::Settings)
+                .style(button::secondary),
+            button("Exemples")
+                .on_press(Message::Examples)
+                .style(button::secondary),
+            button("Sauvegarder")
+                .on_press(Message::Sauvegarder)
+                .style(button::secondary),
         ];
 
         let vitesse_buttons = row![
@@ -430,7 +448,7 @@ impl Conway {
             text(self.vitesse.to_string()).size(20),
         ];
 
-        let control_row = row![lecture_buttons, vitesse_buttons, settings_buttons].spacing(242);
+        let control_row = row![lecture_buttons, vitesse_buttons, settings_buttons].spacing(180);
         column![column_conway, control_row, info_row,].into()
     }
 
@@ -504,8 +522,8 @@ impl Conway {
                 }
                 Screen::Example => self.screen = Screen::Simul,
                 Screen::Simul => (),
-                Screen::Saves_C => (),
-                Screen::Examples_C => (),
+                Screen::SavesC => (),
+                Screen::ExamplesC => (),
             },
             Message::Settings => self.screen = Screen::Init,
             Message::Réinitialiser => {
@@ -598,7 +616,6 @@ impl Conway {
                 }
             }
             Message::Sauvegarder => {
-                // Sérialisation avec gestion des erreurs
                 let serialized = match serde_json::to_string(&self) {
                     Ok(s) => s,
                     Err(e) => {
@@ -607,8 +624,8 @@ impl Conway {
                     }
                 };
 
-                // Création du fichier avec un nom dynamique
-                let file_name = format!("Sauvegarde{}.txt", self.nb_sauvegardes);
+                let file_name = format!("saves/main/Sauvegarde{}.txt", self.nb_sauvegardes);
+                //self.create_miniature();
                 self.nb_sauvegardes += 1;
                 let mut file = match File::create(&file_name) {
                     Ok(f) => f,
@@ -618,7 +635,6 @@ impl Conway {
                     }
                 };
 
-                // Écriture des données sérialisées
                 if let Err(e) = file.write_all(serialized.as_bytes()) {
                     eprintln!(
                         "Erreur lors de l'écriture dans le fichier {}: {}",
@@ -626,22 +642,14 @@ impl Conway {
                     );
                 };
             }
-            Message::Charger_S => self.screen = Screen::Saves_C,
-            Message::Charger_E => self.screen = Screen::Examples_C,
+            Message::ChargerS => self.screen = Screen::SavesC,
+            Message::ChargerE => self.screen = Screen::ExamplesC,
         }
     }
 }
 impl Default for Tab {
     fn default() -> Self {
         Tab([[Cell { living: false }; Conway::SIZE]; Conway::SIZE])
-    }
-}
-
-impl Default for Savings {
-    fn default() -> Self {
-        Savings {
-            conway: Conway::default(),
-        }
     }
 }
 
