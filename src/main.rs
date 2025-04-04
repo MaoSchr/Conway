@@ -1,6 +1,9 @@
-use std::fs::File;
-use std::io::Write;
+use std::fmt;
+use std::fs::{self, File};
+use std::io::{Read, Write};
+use std::path::Path;
 
+use iced::widget::Image;
 use iced::{
     color, time,
     widget::{button, column, container, row, text, text_input, Button, Column, Row, Svg},
@@ -9,6 +12,8 @@ use iced::{
 
 use image::{Rgb, RgbImage};
 use rand::Rng;
+use serde::de::{self, SeqAccess, Visitor};
+use serde::Deserializer;
 use serde::{ser::SerializeSeq, Deserialize, Serialize, Serializer};
 fn main() {
     let _ = iced::application(Conway::title, Conway::update, Conway::view)
@@ -41,7 +46,8 @@ enum Message {
     ConvertCells,
     Sauvegarder,
     ChargerE,
-    ChargerS,
+    ChargerSScreen,
+    ChargerSFinal(usize),
     Conway,
 }
 
@@ -78,8 +84,47 @@ impl Serialize for Tab {
     }
 }
 
-//#[serde_as]
-#[derive(Serialize, Debug)]
+impl<'de> Deserialize<'de> for Tab {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct TabVisitor;
+
+        impl<'de> Visitor<'de> for TabVisitor {
+            type Value = Tab;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                write!(
+                    formatter,
+                    "a 2D array of size {}x{}",
+                    Conway::SIZE,
+                    Conway::SIZE
+                )
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Tab, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut cells = [[Cell { living: false }; Conway::SIZE]; Conway::SIZE];
+                for i in 0..Conway::SIZE {
+                    for j in 0..Conway::SIZE {
+                        let cell: Cell = seq.next_element()?.ok_or_else(|| {
+                            de::Error::invalid_length(i * Conway::SIZE + j, &self)
+                        })?;
+                        cells[i][j] = cell;
+                    }
+                }
+                Ok(Tab(cells))
+            }
+        }
+
+        deserializer.deserialize_seq(TabVisitor)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct Conway {
     nb_init_cells: u32,
     cells_tab: Tab,
@@ -212,17 +257,25 @@ impl Conway {
     }
 
     fn charger_saves(&self) -> Element<Message> {
-        column![
-            text("En cours..."),
-            button("Menu_principal").on_press(Message::Conway)
-        ]
-        .into()
+        let i_max = self.nb_sauvegardes;
+        let mut row_s = Row::new();
+        for i in 0..i_max {
+            let mut column_s = Column::new();
+            for _j in 0..1 {
+                let image = Image::new(format!("saves/miniatures/miniature{}.png", i));
+                column_s = column_s.push(button(image).on_press(Message::ChargerSFinal(i)));
+            }
+            row_s = row_s.push(column_s);
+        }
+
+        row_s = row_s.push(button("Menu_principal").on_press(Message::Conway));
+        row_s.into()
     }
 
     fn examples(&self) -> Element<Message> {
         column![
             button("Charger un exemple").on_press(Message::ChargerE),
-            button("Charger une sauvegarde").on_press(Message::ChargerS),
+            button("Charger une sauvegarde").on_press(Message::ChargerSScreen),
             button("Simulation").on_press(Message::Simulation),
             text("En cours...")
         ]
@@ -339,20 +392,48 @@ impl Conway {
     }
 
     fn create_miniature(&self) {
-        let mut img = RgbImage::new(Self::SIZE as u32, Self::SIZE as u32);
+        let mut img = RgbImage::new((Self::SIZE * 2) as u32, (Self::SIZE * 2) as u32);
         for i in 0..Self::SIZE {
             for j in 0..Self::SIZE {
                 if self.cells_tab.0[i][j].living {
-                    img.put_pixel(i as u32, j as u32, Rgb([0, 0, 0]));
+                    for di in 0..2 {
+                        for dj in 0..2 {
+                            img.put_pixel((2 * i + di) as u32, (2 * j + dj) as u32, Rgb([0, 0, 0]));
+                        }
+                    }
+                } else {
+                    for di in 0..2 {
+                        for dj in 0..2 {
+                            img.put_pixel(
+                                (2 * i + di) as u32,
+                                (2 * j + dj) as u32,
+                                Rgb([255, 255, 255]),
+                            );
+                        }
+                    }
                 }
             }
         }
         img.save(format!(
-            "/saves/miniatures/miniature{}",
+            "./saves/miniatures/miniature{}.png",
             self.nb_sauvegardes
         ))
         .expect("Erreur lors de la sauvegarde de l'image");
     }
+
+    fn compter_documents(dossier: &Path) -> Result<usize, std::io::Error> {
+        let mut nombre_documents = 0;
+
+        for entrée in fs::read_dir(dossier)? {
+            let entrée = entrée?;
+            if entrée.file_type()?.is_file() {
+                nombre_documents += 1;
+            }
+        }
+
+        Ok(nombre_documents)
+    }
+
     fn simulation(&self) -> Element<Message> {
         let mut column_conway = Column::new();
         for y in 0..Self::SIZE {
@@ -510,7 +591,7 @@ impl Conway {
                         input_v: "".to_string(),
                         erreur_c: true,
                         erreur_v: true,
-                        nb_sauvegardes: 0,
+                        nb_sauvegardes: Self::compter_documents(Path::new("./saves/main")).unwrap(),
                     }
                 }
                 Screen::Init => {
@@ -623,9 +704,9 @@ impl Conway {
                         return;
                     }
                 };
-
+                Self::create_miniature(self);
                 let file_name = format!("saves/main/Sauvegarde{}.txt", self.nb_sauvegardes);
-                //self.create_miniature();
+
                 self.nb_sauvegardes += 1;
                 let mut file = match File::create(&file_name) {
                     Ok(f) => f,
@@ -642,7 +723,33 @@ impl Conway {
                     );
                 };
             }
-            Message::ChargerS => self.screen = Screen::SavesC,
+            Message::ChargerSScreen => self.screen = Screen::SavesC,
+            Message::ChargerSFinal(i) => {
+                let mut file = File::open(format!("./saves/main/Sauvegarde{}.txt", i))
+                    .expect("Unable to open file");
+                let mut contents = String::new();
+                file.read_to_string(&mut contents)
+                    .expect("Unable to read file");
+                let deserialized: Conway = serde_json::from_str(&contents).unwrap();
+                *self = Conway {
+                    cells_tab: deserialized.cells_tab,
+                    playing: false,
+                    generation: 1,
+                    screen: Screen::Simul,
+                    nb_init_cells: 0,
+                    living_density: 0,
+                    filling_method: true,
+                    number_of_living_cells: 0,
+                    initial_tab: (deserialized.initial_tab),
+                    vitesse: 100,
+                    grid_state: true,
+                    input_c: "".to_string(),
+                    input_v: "".to_string(),
+                    erreur_c: true,
+                    erreur_v: true,
+                    nb_sauvegardes: Self::compter_documents(Path::new("./saves/main")).unwrap(),
+                }
+            }
             Message::ChargerE => self.screen = Screen::ExamplesC,
         }
     }
@@ -686,7 +793,7 @@ impl Default for Conway {
             input_v: "".to_string(),
             erreur_c: true,
             erreur_v: true,
-            nb_sauvegardes: 0,
+            nb_sauvegardes: Self::compter_documents(Path::new("./saves/main")).unwrap(),
         }
     }
 }
