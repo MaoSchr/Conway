@@ -1,7 +1,7 @@
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use iced::widget::Image;
 use iced::{
@@ -45,10 +45,12 @@ enum Message {
     ConvertDensity,
     ConvertCells,
     Sauvegarder,
-    ChargerE,
+    ChargerEScreen,
+    ChargerEFinal(usize),
     ChargerSScreen,
     ChargerSFinal(usize),
     Conway,
+    Tick,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -142,6 +144,7 @@ struct Conway {
     erreur_v: bool,
     erreur_c: bool,
     nb_sauvegardes: usize,
+    current_frame: usize,
 }
 
 impl Conway {
@@ -151,9 +154,18 @@ impl Conway {
             time::every(time::Duration::from_millis(self.vitesse as u64).into())
                 .map(|_| Message::Update)
         } else {
-            Subscription::none()
+            time::every(time::Duration::from_millis(100).into()).map(|_| Message::Tick)
         }
     }
+
+    fn create_frames(&self) -> Vec<String> {
+        let mut paths: Vec<String> = Vec::new();
+        for i in 0..30 {
+            paths.push(format!("Frames/frame_{:02}_delay-0.1s.png", i).to_string());
+        }
+        paths
+    }
+
     fn check_neighbours(&self, x: usize, y: usize) -> usize {
         let mut living_neighbours = 0;
         let _size = Self::SIZE as isize;
@@ -249,11 +261,20 @@ impl Conway {
     }
 
     fn charge_examples(&self) -> Element<Message> {
-        column![
-            text("En cours..."),
-            button("Menu_principal").on_press(Message::Conway)
-        ]
-        .into()
+        let i_max = 1;
+        let mut row_s = Row::new();
+        for i in 0..i_max {
+            let mut column_s = Column::new();
+            for _j in 0..1 {
+                let image = Image::new(format!("examples/miniatures/miniature{}.png", i));
+                column_s = column_s.push(button(image).on_press(Message::ChargerSFinal(i)));
+                column_s = column_s.push(text("Gosper Glider Gun"));
+            }
+            row_s = row_s.push(column_s);
+        }
+
+        row_s = row_s.push(button("Menu_principal").on_press(Message::Conway));
+        row_s.into()
     }
 
     fn charger_saves(&self) -> Element<Message> {
@@ -274,7 +295,7 @@ impl Conway {
 
     fn examples(&self) -> Element<Message> {
         column![
-            button("Charger un exemple").on_press(Message::ChargerE),
+            button("Charger un exemple").on_press(Message::ChargerEScreen),
             button("Charger une sauvegarde").on_press(Message::ChargerSScreen),
             button("Simulation").on_press(Message::Simulation),
             text("En cours...")
@@ -283,8 +304,14 @@ impl Conway {
     }
 
     fn conway(&self) -> Element<Message> {
+        let images = self.create_frames();
+        let path = PathBuf::from(&images[self.current_frame]);
+        let handle = iced::widget::image::Handle::from(path);
+        let conway_image = Image::new(handle).width(Length::Fill).height(Length::Fill);
+
         container(column![
             container(text("Jeu de Conway").size(50)).center(Length::Fill),
+            container(conway_image).center(Length::Fill),
             container(
                 row![
                     button("Paramètres").on_press(Message::Settings),
@@ -298,6 +325,7 @@ impl Conway {
         .center(Length::Fill)
         .into()
     }
+
     fn init(&self) -> Element<Message> {
         let mut init = Column::new();
         let mut density_button = button("Density Method").on_press(Message::FillingMethodChanged);
@@ -501,6 +529,9 @@ impl Conway {
             button("Sauvegarder")
                 .on_press(Message::Sauvegarder)
                 .style(button::secondary),
+            button("Menu principal")
+                .on_press(Message::Conway)
+                .style(button::secondary)
         ];
 
         let vitesse_buttons = row![
@@ -529,7 +560,7 @@ impl Conway {
             text(self.vitesse.to_string()).size(20),
         ];
 
-        let control_row = row![lecture_buttons, vitesse_buttons, settings_buttons].spacing(180);
+        let control_row = row![lecture_buttons, vitesse_buttons, settings_buttons].spacing(120);
         column![column_conway, control_row, info_row,].into()
     }
 
@@ -592,6 +623,7 @@ impl Conway {
                         erreur_c: true,
                         erreur_v: true,
                         nb_sauvegardes: Self::compter_documents(Path::new("./saves/main")).unwrap(),
+                        current_frame: 0,
                     }
                 }
                 Screen::Init => {
@@ -748,9 +780,40 @@ impl Conway {
                     erreur_c: true,
                     erreur_v: true,
                     nb_sauvegardes: Self::compter_documents(Path::new("./saves/main")).unwrap(),
+                    current_frame: 0,
                 }
             }
-            Message::ChargerE => self.screen = Screen::ExamplesC,
+            Message::ChargerEScreen => self.screen = Screen::ExamplesC,
+            Message::ChargerEFinal(i) => {
+                let mut file = File::open(format!("./saves/main/Sauvegarde{}.txt", i))
+                    .expect("Unable to open file");
+                let mut contents = String::new();
+                file.read_to_string(&mut contents)
+                    .expect("Unable to read file");
+                let deserialized: Conway = serde_json::from_str(&contents).unwrap();
+                *self = Conway {
+                    cells_tab: deserialized.cells_tab,
+                    playing: false,
+                    generation: 1,
+                    screen: Screen::Simul,
+                    nb_init_cells: 0,
+                    living_density: 0,
+                    filling_method: true,
+                    number_of_living_cells: 0,
+                    initial_tab: (deserialized.initial_tab),
+                    vitesse: 100,
+                    grid_state: true,
+                    input_c: "".to_string(),
+                    input_v: "".to_string(),
+                    erreur_c: true,
+                    erreur_v: true,
+                    nb_sauvegardes: Self::compter_documents(Path::new("./saves/main")).unwrap(),
+                    current_frame: 0,
+                }
+            }
+            Message::Tick => {
+                self.current_frame = (self.current_frame + 1) % (Self::create_frames(self).len())
+            }
         }
     }
 }
@@ -794,6 +857,7 @@ impl Default for Conway {
             erreur_c: true,
             erreur_v: true,
             nb_sauvegardes: Self::compter_documents(Path::new("./saves/main")).unwrap(),
+            current_frame: 0,
         }
     }
 }
